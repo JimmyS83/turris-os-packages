@@ -10,8 +10,8 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=user_notify
 PKG_VERSION:=50
 PKG_MAINTAINER:=CZ.NIC <packaging@turris.cz>
+PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://gitlab.labs.nic.cz/turris/user-notify.git
-PKG_SOURCE:=$(PKG_NAME).tar.gz
 PKG_SOURCE_VERSION:=2a1bb31a04a33937c017515c44e640cec78a2e49
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_SOURCE_VERSION).tar.gz
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)
