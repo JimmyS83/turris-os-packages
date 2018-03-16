@@ -559,13 +559,31 @@ class Netmetr:
             ser = serial.Serial(self.gps_console_path, timeout=5)
             for i in range(1, 100 + 1):
                 line = ser.readline()
-                if line[0] == "$":
+                if len(line) > 0 and line[0] == "$":
                     splitted = line.split(",")
-                    if splitted[0] == "$GPGGA":
+                    if splitted[0] == "$GPGGA" and not GGA:
                         lat = splitted[2]
+                        if lat == '':
+                            if print_debug("Empty latitude (line {})".format(i)):
+                                print(line)
+                            continue
                         lon = splitted[4]
-                        self.hdop = splitted[8]
-                        self.altitude = splitted[9]
+                        if lon == '':
+                            if print_debug("Empty longitude (line {})".format(i)):
+                                print(line)
+                            continue
+                        if splitted[8] == '':
+                            if print_debug("Empty hdop (line {})".format(i)):
+                                print(line)
+                            continue
+                        else:
+                            self.hdop = splitted[8]
+                        if splitted[9] == '':
+                            if print_debug("Empty altitude (line {})".format(i)):
+                                print(line)
+                            continue
+                        else:
+                            self.altitude = splitted[9]
                         self.lat = int(lat[0:2])+float(lat[2:])/60
                         self.lon = int(lon[0:3])+float(lon[3:])/60
                         if splitted[3] == "S":
@@ -573,20 +591,35 @@ class Netmetr:
                         if splitted[5] == "W":
                             self.lon = -self.lon
                         GGA = True
-                    elif splitted[0] == "$GPVTG":
-                        self.speed = splitted[7]
-                        self.bearing = splitted[1]
+                    elif splitted[0] == "$GPVTG" and not VTG:
+                        if splitted[7] == '':
+                            if print_debug("Empty speed (line {})".format(i)):
+                                print(line)
+                            continue
+                        else:
+                            self.speed = splitted[7]
+                        if splitted[1] == '':
+                            if print_debug("Empty bearing (line {})".format(i)):
+                                print(line)
+                            continue
+                        else:
+                            self.bearing = splitted[1]
                         VTG = True
                     if GGA and VTG:
+                        print_debug("GPS measured (line {}). Closing console.".format(i))
                         ser.close()
                         break
-                # we have not so much time
-                if i == 100:
-                    self.gps_console_path = None
-                    break
-        except:
-            print_error("GPS problem.")
+            if not GGA or not VTG:
+                self.gps_console_path = None
+                ser.close()
+                print_error("GPS problem: no valid data. Console closed.")
+        except serial.SerialException:
+            print_error("GPS problem. Console not closed.")
             self.gps_console_path = None
+        except:
+            self.gps_console_path = None
+            ser.close()
+            print_error("GPS problem. Console closed.")
 
     def load_lte_console(self):
         if os.path.isfile("/sbin/uci"):
@@ -657,14 +690,35 @@ class Netmetr:
                 line = ser.readline()
                 split_line = line.split(":")
                 if len(line) == 4:  # this is "OK\r\n"
-                    if print_debug("LTE results:"):
-                        print(json.dumps(self.lte, indent=2))
                     break
                 for key in keys:
                     for index in range(0, len(split_line)):
                         if key in split_line[index]:
                             parts = split_line[index+1].split()
                             self.lte[keys[key]] = parts[0]
+
+            ser.write("AT!LTEINFO?\r")
+            while True:
+                line = ser.readline()
+                if len(line) < 3:
+                    continue
+                split_line = line.split()
+                if len(line) == 4:  # this is "OK\r\n"
+                    if print_debug("LTE results:"):
+                        print(json.dumps(self.lte, indent=2))
+                    break
+                if split_line[0] == "Serving:":
+                    line = ser.readline()
+                    split_line = line.split()
+                    self.lte["MCC"] = split_line[1]
+                    self.lte["MNC"] = split_line[2]
+                    self.lte["LAC"] = split_line[3]
+                    self.lte["Cell Id"] = int(split_line[4], 16)
+                    self.lte["PCI"] = split_line[9]
+                if split_line[0] == "InterFreq:" and split_line[1] == "EARFCN":
+                    line = ser.readline()
+                    split_line = line.split()
+                    self.lte["DL EARFCN"] = split_line[0]
         except:
             print_error("LTE problem.")
             self.lte_console_path = None
@@ -672,31 +726,39 @@ class Netmetr:
     def export_csv(self, path):
         if self.lte_console_path and not self.gps_console_path:
             table = (
-                time.strftime('%d.%m.%Y %H:%M'), ' ', ' ', self.lte['RSRP'],
+                time.strftime('%d.%m.%Y %H:%M'), ' ', ' ',
+                self.lte['RSRP'],
                 self.lte['SINR Rx[0]'], self.lte['RSRQ'], self.lte['RSSI'],
-                round(self.dl_speed), ' ', ' ', ' ', ' ', ' ', ' ',
+                round(self.dl_speed), self.lte['MCC'], self.lte['MNC'], self.lte['LAC'],
+                self.lte['Cell Id'], self.lte['PCI'], self.lte['DL EARFCN'],
                 self.lte['Bandwidth'], ' ', ' ', ' ', ' ', ' '
             )
         elif not self.lte_console_path and self.gps_console_path:
+            lat = "{:.6f}".format(float(self.lat))
+            lon = "{:.6f}".format(float(self.lon))
             table = (
-                time.strftime('%d.%m.%Y %H:%M'), self.lat, self.lon, ' ',
-                ' ', ' ', ' ',
-                ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+                time.strftime('%d.%m.%Y %H:%M'), lat, lon, ' ',
+                ' ', ' ', ' ', round(self.dl_speed),
+                ' ', ' ', ' ', ' ', ' ', ' ',
                 ' ', ' ', ' ', ' ', ' ', ' '
             )
         elif self.lte_console_path and self.gps_console_path:
+            lat = "{:.6f}".format(float(self.lat))
+            lon = "{:.6f}".format(float(self.lon))
             table = (
-                time.strftime('%d.%m.%Y %H:%M'), self.lat, self.lon,
+                time.strftime('%d.%m.%Y %H:%M'), lat, lon,
                 self.lte['RSRP'],
                 self.lte['SINR Rx[0]'], self.lte['RSRQ'], self.lte['RSSI'],
-                self.dl_speed, ' ', ' ', ' ', ' ', ' ', ' ',
+                round(self.dl_speed), self.lte['MCC'], self.lte['MNC'], self.lte['LAC'],
+                self.lte['Cell Id'], self.lte['PCI'], self.lte['DL EARFCN'],
                 self.lte['Bandwidth'], ' ', ' ', ' ', ' ', ' '
             )
         else:
             table = (
-                time.strftime('%d.%m.%Y %H:%M'), ' ', ' ', ' ',
+                time.strftime('%d.%m.%Y %H:%M'), ' ', ' ',
+                ' ',
                 ' ', ' ', ' ',
-                ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+                round(self.dl_speed), ' ', ' ', ' ', ' ', ' ', ' ',
                 ' ', ' ', ' ', ' ', ' ', ' '
             )
         if os.path.isfile(path):
