@@ -17,7 +17,7 @@ include $(INCLUDE_DIR)/package.mk
 
 define Package/$(PKG_NAME)
 	TITLE:=Speed measurement application
-	DEPENDS:=+rmbt-client +vixie-cron +python-light
+	DEPENDS:=+rmbt-client +vixie-cron +python-light +python-pyserial
 endef
 define Package/$(PKG_NAME)/description
   Python wrapper for RMBT C application that
